@@ -1,0 +1,70 @@
+# Dockerfile for building Godot-Rust WASM
+# This builds the Rust library for wasm32-unknown-emscripten from Linux
+# using api-custom-json feature to regenerate bindings for 32-bit WASM
+# (api-custom-json doesn't require running Godot, just the JSON file)
+
+FROM rust:latest
+
+# Install required tools
+RUN apt-get update && apt-get install -y \
+    git \
+    python3 \
+    cmake \
+    wget \
+    unzip \
+    llvm \
+    clang \
+    libclang-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download Godot extension_api.json (doesn't need to run Godot)
+# From godot-cpp repository which has the correct file
+RUN mkdir -p /godot-api \
+    && wget -q "https://raw.githubusercontent.com/godotengine/godot-cpp/godot-4.3-stable/gdextension/extension_api.json" -O /godot-api/extension_api.json \
+    && echo "Downloaded extension_api.json ($(wc -c < /godot-api/extension_api.json) bytes)"
+
+# Set env for api-custom-json
+ENV GODOT4_GDEXTENSION_JSON=/godot-api/extension_api.json
+
+# Install Emscripten
+ENV EMSDK=/opt/emsdk
+RUN git clone https://github.com/emscripten-core/emsdk.git $EMSDK \
+    && cd $EMSDK \
+    && ./emsdk install 3.1.74 \
+    && ./emsdk activate 3.1.74
+
+# Set up Emscripten environment
+ENV PATH="$EMSDK:$EMSDK/upstream/emscripten:$PATH"
+
+# Set LLVM path for bindgen
+ENV LLVM_PATH="/usr/lib/llvm-14"
+
+# Install Rust nightly and required components
+RUN rustup toolchain install nightly \
+    && rustup component add rust-src --toolchain nightly \
+    && rustup +nightly target add wasm32-unknown-emscripten
+
+# Set working directory
+WORKDIR /app
+
+# Copy cargo config first (for caching)
+COPY .cargo/config.toml .cargo/config.toml
+
+# Copy Cargo.toml - will be modified for WASM build
+COPY Cargo.toml Cargo.lock ./
+
+# Modify Cargo.toml to use api-custom-json for WASM (doesn't need running Godot)
+RUN sed -i 's/features = \[.*\]/features = ["api-custom-json", "experimental-wasm", "experimental-wasm-nothreads", "lazy-function-tables"]/' Cargo.toml
+
+# Create dummy src to cache dependencies
+RUN mkdir src && echo "// dummy" > src/lib.rs
+RUN cargo +nightly build -Zbuild-std --release --target wasm32-unknown-emscripten 2>/dev/null || true
+RUN rm -rf src
+
+# Copy actual source
+COPY src ./src
+
+# Build for real
+RUN cargo +nightly build -Zbuild-std --release --target wasm32-unknown-emscripten
+
+# Output is at /app/target/wasm32-unknown-emscripten/release/

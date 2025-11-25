@@ -1,0 +1,29 @@
+# Rust build artifacts
+/target
+Cargo.lock
+
+# Godot artifacts
+godot/.godot/
+godot/*.import
+godot/export_presets.cfg
+
+# Export outputs
+/export/
+
+# macOS
+.DS_Store
+*.swp
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+
+# Backup files
+*.bak
+*.native
+Cargo.toml.native
+
+# Temporary files
+/tmp/
+*.tmp
